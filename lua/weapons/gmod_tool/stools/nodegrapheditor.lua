@@ -3,9 +3,9 @@
 //end)
 
 TOOL.Category = "Map"
-TOOL.Name = "Nodegraph Editor 2"
+TOOL.Name = "Nodegraph Editor"
 if(CLIENT) then
-	language.Add("tool.nodegrapheditor.name","Nodegraph Editor 2")
+	language.Add("tool.nodegrapheditor.name","Nodegraph Editor")
 	language.Add("tool.nodegrapheditor.desc","Edit a map's nodegraph.")
 	language.Add("tool.nodegrapheditor.0","Left click to place a node at your crosshair, right click to place a node at your position. Hold your use or duck key and click on a node to edit links.")
 	if(game.SinglePlayer()) then
@@ -24,6 +24,7 @@ if(CLIENT) then
 					HitPos = HitPos,
 					Normal = (HitPos -StartPos):GetNormal()
 				}
+				// args[1] = util.TraceLine(util.GetPlayerTrace(LocalPlayer())) end
 			end
 			if(fc == 0) then fc = "LeftClick"
 			elseif(fc == 1) then fc = "RightClick"
@@ -35,8 +36,8 @@ if(CLIENT) then
 	end
 else
 	if(game.SinglePlayer()) then util.AddNetworkString("wrench_t_call") end
-	AddCSLuaFile("effects/effect_node/init.lua")
-	if(game.SinglePlayer()) then
+	AddCSLuaFile("effects/effect_node/init.lua") // TODO: Remove this once garry fixes includes
+	if(game.SinglePlayer()) then // Most TOOL functions don't get called on the client in game.SinglePlayer, so we'll do it ourselves.
 		function TOOL:CallOnClient(...)
 			local fc = ...
 			net.Start("wrench_t_call")
@@ -50,6 +51,26 @@ else
 			net.Send(self:GetOwner())
 		end
 	end
+end
+
+if SERVER then
+	net.Receive("sv_nodegrapheditor_getvectors",function(len,pl)
+		local mkay = net.ReadEntity()
+		if mkay then
+			local tbl = SLVNodegraphEditor.GetNodeableNavAreas() or {}
+			local ply = Entity(1)
+			-- for _,v in pairs(player.GetAll()) do
+				-- local wep = ply:GetActiveWeapon()
+				-- if IsValid(wep) && wep:GetClass() == "gmod_tool" && wep:GetMode() == "nodegrapheditor" then
+					-- ply = v
+					-- break
+				-- end
+			-- end
+			net.Start("cl_nodegrapheditor_updatevectors")
+				net.WriteTable(tbl)
+			net.Send(ply)
+		end
+	end)
 end
 
 local _R = debug.getregistry()
@@ -159,13 +180,10 @@ if(CLIENT) then
 	local cvDrawClimb = CreateClientConVar("cl_nodegraph_tool_nodes_draw_climb",0,true)
 	local cvCreateType = CreateClientConVar("cl_nodegraph_tool_node_type",NODE_TYPE_GROUND,true)
 	local cvVis = CreateClientConVar("cl_nodegraph_tool_check_visibility",1,true)
-	local cvDropToFloor = CreateClientConVar("cl_nodegraph_tool_droptofloor",0,true)
 	local cvDrawPreview = CreateClientConVar("cl_nodegraph_tool_draw_preview",1,true)
 	local cvSnap = CreateClientConVar("cl_nodegraph_tool_snap",0,true)
 	local cvYaw = CreateClientConVar("cl_nodegraph_tool_yaw",0,false)
-	local cvX = CreateClientConVar("cl_nodegraph_tool_x",0,false)
-	local cvY = CreateClientConVar("cl_nodegraph_tool_y",0,false)
-	local cvZ = CreateClientConVar("cl_nodegraph_tool_z",0,false)
+	local cvOffset = CreateClientConVar("cl_nodegraph_tool_offset",0,false)
 	local cvShowYaw = CreateClientConVar("cl_nodegraph_tool_nodes_show_yaw",0,true)
 	local matArrow = Material("widgets/arrow.png","nocull translucent vertexalpha smooth mips")
 	local szArrow = 20
@@ -220,20 +238,11 @@ if(CLIENT) then
 	local NODE_CLIMB_OFF_FORWARD =	(bit.lshift(1,2))//,	// Dismount climb by going forward
 	local NODE_CLIMB_OFF_LEFT	=	(bit.lshift(1,3))//,	// Dismount climb by going left
 	local NODE_CLIMB_OFF_RIGHT	=	(bit.lshift(1,4))//,	// Dismount climb by going right
+	// TODO: Are these required for climb nodes?
 	local NODE_CLIMB_EXIT		=	bit.bor(NODE_CLIMB_OFF_FORWARD,NODE_CLIMB_OFF_LEFT,NODE_CLIMB_OFF_RIGHT)
 	local q = 0
 	function TOOL:CreateNode(pos)
 		local createType = cvCreateType:GetInt()
-		if cvDropToFloor:GetBool() == true then
-			local tr = util.TraceLine({
-				start = pos,
-				endpos = pos -Vector(0,0,32768),
-				mask = MASK_PLAYERSOLID_BRUSHONLY
-			})
-			if tr.Hit then
-				pos = tr.HitPos +Vector(cvX:GetInt(),cvY:GetInt(),2)
-			end
-		end
 		local nodeID = nodegraph:AddNode(pos,createType,cvYaw:GetInt(),info)
 		if(!nodeID) then notification.AddLegacy("You can't place any additional nodes.",1,8); return end
 		local numNodes = table.Count(nodes)
@@ -251,11 +260,11 @@ if(CLIENT) then
 				end
 			end
 		end
-		net.Start("sv_nodegrapheditor_undo_node")
+		net.Start("sv_nodegrapheditor_undo_node") // Sending it to the server and then back to the client. Dumb, but no other way.
 			net.WriteUInt(nodeID,14)
 		net.SendToServer()
-		//4096
-		if(numNodes == 3250 || numNodes == 3680 || numNodes == 3994) then notification.AddLegacy("You are close to the node limit (" .. numNodes .. "/" .. MAX_NODES .. ").",0,8)
+		self:GetOwner():ChatPrint(numNodes .. "/" .. MAX_NODES)
+		if(numNodes == 3000 || numNodes == 3500 || numNodes == 4000) then notification.AddLegacy("You are close to the node limit (" .. numNodes .. "/" .. MAX_NODES .. ").",0,8)
 		elseif(numNodes == MAX_NODES) then notification.AddLegacy("You have reached the node limit.",0,8) end
 	end
 	net.Receive("cl_nodegrapheditor_undo_node",function(len)
@@ -264,6 +273,22 @@ if(CLIENT) then
 		if(!tool) then return end
 		tool:RemoveNode(nodeID)
 	end)
+	net.Receive("cl_nodegrapheditor_updatevectors",function(len,pl)
+		local tbl = net.ReadTable()
+		local tool = GetTool()
+		if(!tool) then return end
+		if tbl == nil then MsgN("Failed to generate! No nav-mesh data detected!"); tool:GetOwner():ChatPrint("Failed to generate! No nav-mesh data detected!") return end
+		local count = #tbl
+		if count == 0 then MsgN("Failed to generate! No nav-mesh detected!"); tool:GetOwner():ChatPrint("Failed to generate! No nav-mesh detected!") return end
+		for num,vec in pairs(tbl) do
+			tool:CreateNode(vec)
+		end
+	end)
+	function TOOL:Generate()
+		net.Start("sv_nodegrapheditor_getvectors")
+			net.WriteEntity(self:GetOwner())
+		net.SendToServer()
+	end
 	function TOOL:HasLink(src,dest) return nodegraph:HasLink(src,dest) end
 	function TOOL:RemoveLinks(nodeID) nodegraph:RemoveLinks(nodeID) end
 	function TOOL:RemoveLink(src,dest) nodegraph:RemoveLink(src,dest) end
@@ -286,7 +311,7 @@ if(CLIENT) then
 		local tr = util.TraceLine({start = a +Vector(0,0,3),endpos = b +Vector(0,0,3),mask = MASK_NPCWORLDSTATIC})
 		return !tr.Hit
 	end
-	local angNode = Angle(0,0,0)
+	local angNode = Angle(0,0,0) // TODO: Use yaw of node?
 	local minNode = Vector(-30,-30,-30)
 	local maxNode = Vector(30,30,30)
 	function TOOL:GetTraceNode()
@@ -362,7 +387,7 @@ if(CLIENT) then
 			self:ClearSelection()
 		end
 	end
-	function TOOL:SolidifySelection()
+	function TOOL:SolidifySelection() // Makes the selected node selected until the duck / use key has been released
 		if(!self.m_selected) then return end
 		self.m_bKeepSelection = true
 		local eSelected = self.m_tbEffects[self.m_selected]
@@ -392,7 +417,8 @@ if(CLIENT) then
 		if(self.m_bPreview) then
 			if(cvShowYaw:GetBool()) then
 				local yaw = cvYaw:GetInt()
-				local pos = self:GetPos() +Vector(0,0,30)
+				local offset = cvOffset:GetInt()
+				local pos = self:GetPos() +Vector(0,0,30 +offset)
 				colArrow.a = 255
 				cam.Start3D(EyePos(),EyeAngles())
 					local dir = Angle(0,yaw,0):Forward()
@@ -473,22 +499,28 @@ if(CLIENT) then
 		local pl = self:GetOwner()
 		local pos = pl:GetShootPos()
 		local snap = cvSnap:GetInt()
+		local offset = cvOffset:GetInt()
 		local tr = util.TraceLine(util.GetPlayerTrace(pl))
 		local createType = cvCreateType:GetInt()
 		if(createType != NODE_TYPE_AIR) then
-			local pos = SnapToGrid(tr.HitPos +Vector(cvX:GetInt(),cvY:GetInt(),cvZ:GetInt()),snap)
+			local pos = SnapToGrid(tr.HitPos +Vector(0,0,offset),snap)
 			if(createType == NODE_TYPE_CLIMB) then
 				local dir
-				if(tr.Normal.x > tr.Normal.y) then dir = Vector(tr.Normal.x /math.abs(tr.Normal.x) *-1,0,0)
-				else dir = Vector(0,tr.Normal.y /math.abs(tr.Normal.y) *-1,0) end
-				pos = pos +Vector(0,0,8)
+				if(tr.Normal.x > tr.Normal.y) then
+					dir = Vector(tr.Normal.x /math.abs(tr.Normal.x) *-1,0,0)
+				else
+					dir = Vector(0,tr.Normal.y /math.abs(tr.Normal.y) *-1,0)
+				end
+				pos = pos +Vector(0,0,8) // Slight offset for climb nodes so they can be placed at edges more easily.
 			end
 			return pos
 		end
 		local dMax = cvDistAirNode:GetInt()
-		local d = pos:Distance(tr.HitPos)
-		if(d > dMax) then return SnapToGrid(pos +tr.Normal *dMax,snap) end
-		return SnapToGrid(tr.HitPos +Vector(cvX:GetInt(),cvY:GetInt(),cvZ:GetInt()),snap)
+		local d = pos:Distance(tr.HitPos +Vector(0,0,offset))
+		if(d > dMax) then
+			return SnapToGrid(pos +tr.Normal *dMax,snap)
+		end
+		return SnapToGrid(tr.HitPos +Vector(0,0,offset),snap)
 	end
 	function TOOL:ClearEffects()
 		if(self.m_tbEffects) then
@@ -587,7 +619,7 @@ if(CLIENT) then
 		if(nodeClosest) then self:SelectNode(nodeClosest) end
 	end
 	function TOOL.BuildCPanel(pnl)
-		pnl:AddControl("Header",{Text = "Nodegraph Editor 2",Description = [[Use left click to place a node at your crosshair, or remove an existing node.
+		pnl:AddControl("Header",{Text = "Nodegraph Editor",Description = [[Use left click to place a node at your crosshair, or remove an existing node.
 		Use right click to place a node at your current position.
 		To edit links between nodes, hold either use or duck and then click on a node.
 		You are in the link edit mode until you release the use / duck key. In this mode you can:
@@ -627,29 +659,44 @@ if(CLIENT) then
 		
 		pnl:AddControl("Slider",{type = "int",min = 0,max = 4000,label = "Draw Distance",Command = "cl_nodegraph_tool_draw_distance"})
 		pnl:AddControl("Slider",{type = "int",min = 0,max = 1000,label = "Air Node Distance",Command = "cl_nodegraph_tool_airnode_distance"})
-		pnl:AddControl("Slider",{type = "int",min = 0,max = 1500,label = "Max Link Distance",Command = "cl_nodegraph_tool_max_link_distance"})
-		pnl:AddControl("Slider",{type = "int",min = 0,max = 360,label = "Forward Direction",Command = "cl_nodegraph_tool_yaw"})
-		pnl:AddControl("Slider",{type = "int",min = -500,max = 500,label = "X (Left/Right)",Command = "cl_nodegraph_tool_x"})
-		pnl:AddControl("Slider",{type = "int",min = -500,max = 500,label = "Y (Forward/Backward)",Command = "cl_nodegraph_tool_y"})
-		pnl:AddControl("Slider",{type = "int",min = -500,max = 500,label = "Z (Height)",Command = "cl_nodegraph_tool_z"})
-		pnl:AddControl("CheckBox",{Label = "Drop To Floor",Command = "cl_nodegraph_tool_droptofloor"})
-		pnl:AddControl("CheckBox",{Label = "Draw Forward Direction Arrow",Command = "cl_nodegraph_tool_nodes_show_yaw"})
-		pnl:AddControl("CheckBox",{Label = "Draw Ground Nodes",Command = "cl_nodegraph_tool_nodes_draw_ground"})
-		pnl:AddControl("CheckBox",{Label = "Draw Air Nodes",Command = "cl_nodegraph_tool_nodes_draw_air"})
-		pnl:AddControl("CheckBox",{Label = "Draw Climb Nodes",Command = "cl_nodegraph_tool_nodes_draw_climb"})
+		pnl:AddControl("Slider",{type = "int",min = 0,max = 500,label = "Max Link Distance",Command = "cl_nodegraph_tool_max_link_distance"})
+		pnl:AddControl("Slider",{type = "int",min = 0,max = 360,label = "Yaw",Command = "cl_nodegraph_tool_yaw"})
+		pnl:AddControl("Slider",{type = "int",min = -500,max = 500,label = "Offset",Command = "cl_nodegraph_tool_offset"})
 		pnl:AddControl("CheckBox",{Label = "Check Link Visibility",Command = "cl_nodegraph_tool_check_visibility"})
+		pnl:AddControl("CheckBox",{Label = "Show Yaw Arrow",Command = "cl_nodegraph_tool_nodes_show_yaw"})
+		pnl:AddControl("CheckBox",{Label = "Show Ground Nodes",Command = "cl_nodegraph_tool_nodes_draw_ground"})
+		pnl:AddControl("CheckBox",{Label = "Show Air Nodes",Command = "cl_nodegraph_tool_nodes_draw_air"})
+		pnl:AddControl("CheckBox",{Label = "Show Climb Nodes",Command = "cl_nodegraph_tool_nodes_draw_climb"})
 		
 		local pSave = vgui.Create("DButton",pnl)
-		pSave:SetText("Save Nodegraph")
+		pSave:SetText("Save Nodegraph (" .. game.GetMap() .. ".txt)")
 		pSave.DoClick = function(pSave)
 			nodegraph:Save()
-			notification.AddLegacy("Nodegraph has been saved as 'data/nodegraph/" .. game.GetMap() .. ".txt' with a total of " .. table.Count(nodes) .. "/4096" .. " nodes.",0,8)
+			notification.AddLegacy("Nodegraph has been saved as 'data/nodegraph/" .. game.GetMap() .. ".txt'. Change the file extension to .ain and move it to 'maps/graphs/'.",0,8)
 			ShowFirstTimeNotification()
 			local tool = GetTool()
 			if(tool) then tool:ClearEffects() end // Reload the whole thing
 		end
 		pSave:SetWide(110)
 		pnl:AddItem(pSave)
+		
+		local navText = "No Nav-Mesh Detected"
+		if file.Exists("maps/" .. game.GetMap() .. ".nav","GAME") then
+			navText = "Nav-Mesh Detected"
+		end
+		
+		local pNav = vgui.Create("DButton",pnl)
+		pNav:SetText("Generate Nodegraph (" .. navText .. ")")
+		pNav.DoClick = function(pNav)
+			notification.AddLegacy("This will take some time to generate depending on the map size. Please be patient.",0,8)
+			local tool = GetTool()
+			tool:Generate()
+			if(tool) then tool:ClearEffects() end // Reload the whole thing
+		end
+		pNav:SetWide(110)
+		pnl:AddItem(pNav)
+
+		pnl:ControlHelp("Notice: This will not generate a fully fledged nodegraph! This is more so a helper in noding if you don't want to spend hours properly noding a large map. Make sure you go over the generated nodes as well as there will most likely be some linking issues.")
 
 		local pRestore = vgui.Create("DButton",pnl)
 		pRestore:SetText("Restore Nodegraph")
