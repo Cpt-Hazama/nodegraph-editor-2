@@ -1,0 +1,6 @@
+"VertexLitGeneric"
+{
+	"$basetexture" "Editor/Water_node_col"
+	"$translucent" "1"
+	//"$selfillum" "1"
+}

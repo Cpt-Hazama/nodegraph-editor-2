@@ -1,0 +1,5 @@
+"VertexLitGeneric"
+{
+	"$basetexture" "Editor/Climb_node_col"
+	//"$selfillum" "1"
+}

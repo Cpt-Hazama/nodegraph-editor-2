@@ -186,6 +186,7 @@ if(CLIENT) then
 	local cvOffset = CreateClientConVar("cl_nodegraph_tool_offset",0,false)
 	local cvShowYaw = CreateClientConVar("cl_nodegraph_tool_nodes_show_yaw",0,true)
 	local matArrow = Material("widgets/arrow.png","nocull translucent vertexalpha smooth mips")
+
 	local szArrow = 20
 	local colArrow = Color(255,0,0,255)
 	local colArrowSelected = Color(0,255,0,255)
@@ -348,13 +349,13 @@ if(CLIENT) then
 		if(self.m_selected) then
 			local nodeSelected = nodes[self.m_selected]
 			local eSelected = self.m_tbEffects[self.m_selected]
-			if(eSelected) then eSelected:SetColor(Color(255,255,255,255)) end
+			if(eSelected) then eSelected:SetDesiredColor(Color(255,255,255,255)) end
 		end
 		node = nodes[nodeID]
 		self:ClearSelection()
 		local e = self.m_tbEffects[nodeID]
 		if(e) then
-			e:SetColor(colSelected)
+			e:SetDesiredColor(colSelected)
 			e.m_rMin,e.m_rMax = e:GetRenderBounds()
 			e:SetRenderBounds(Vector(-16384,-16384,-16384),Vector(16384,16384,16384)) // Make sure this is always rendered, so the links always show
 			self.m_selected = nodeID
@@ -383,7 +384,7 @@ if(CLIENT) then
 		end
 		local d = nodeSelected.pos:Distance(pos)
 		if(d > distMinSelect) then
-			if(eSelected) then eSelected:SetColor(Color(255,255,255,255)) end
+			if(eSelected) then eSelected:SetDesiredColor(Color(255,255,255,255)) end
 			self:ClearSelection()
 		end
 	end
@@ -400,13 +401,27 @@ if(CLIENT) then
 		self.m_tbEffects[nodeID].m_bRemove = true
 		self.m_tbEffects[nodeID] = nil
 	end
-	local mat = Material("trails/laser")
+
+	local cvColEnable = CreateClientConVar("cl_nodegraph_tool_nodes_col_enable",0,true)
+	local cvColLineR = CreateClientConVar("cl_nodegraph_tool_nodes_line_col_r",255,true)
+	local cvColLineG = CreateClientConVar("cl_nodegraph_tool_nodes_line_col_g",255,true)
+	local cvColLineB = CreateClientConVar("cl_nodegraph_tool_nodes_line_col_b",255,true)
 	local colDefault = Color(0,255,0,255)
 	local colRemove = Color(255,0,0,255)
 	local colNew = Color(0,255,255,255)
 	local colNewBlocked = Color(255,0,255,255)
+
+	local mat = Material("trails/laser")
 	local offset = Vector(0,0,3)
 	local DrawLinks = function(self)
+		local colEnabled = cvColEnable:GetBool()
+		local cvLineR = cvColLineR:GetInt()
+		local cvLineG = cvColLineG:GetInt()
+		local cvLineB = cvColLineB:GetInt()
+		local colDefault = colEnabled && Color(cvLineR,cvLineG,cvLineB,255) or Color(0,255,0,255)
+		local colRemove = colEnabled && Color(255 /cvLineR,255 /cvLineG,255 /cvLineB,255) or Color(255,0,0,255)
+		local colNew = colEnabled && Color(cvLineR *0.2,cvLineG *0.2,cvLineB *0.2,255) or Color(0,255,255,255)
+		local colNewBlocked = colEnabled && Color(cvLineR *0.75,cvLineG *0,cvLineB *0.25,255) or Color(255,0,255,255)
 		local col = colDefault
 		render.SetMaterial(mat)
 		if(self.m_tbLinks) then
@@ -667,6 +682,25 @@ if(CLIENT) then
 		pnl:AddControl("CheckBox",{Label = "Show Ground Nodes",Command = "cl_nodegraph_tool_nodes_draw_ground"})
 		pnl:AddControl("CheckBox",{Label = "Show Air Nodes",Command = "cl_nodegraph_tool_nodes_draw_air"})
 		pnl:AddControl("CheckBox",{Label = "Show Climb Nodes",Command = "cl_nodegraph_tool_nodes_draw_climb"})
+		pnl:AddControl("CheckBox",{Label = "Override Node Colors",Command = "cl_nodegraph_tool_nodes_col_enable"})
+		pnl:AddControl("Color",{
+			Label = "Node Color", 
+			Red = "cl_nodegraph_tool_nodes_col_r",
+			Green = "cl_nodegraph_tool_nodes_col_g",
+			Blue = "cl_nodegraph_tool_nodes_col_b",
+			ShowAlpha = "0", 
+			ShowHSV = "1",
+			ShowRGB = "1"
+		})
+		pnl:AddControl("Color",{
+			Label = "Link Color", 
+			Red = "cl_nodegraph_tool_nodes_line_col_r",
+			Green = "cl_nodegraph_tool_nodes_line_col_g",
+			Blue = "cl_nodegraph_tool_nodes_line_col_b",
+			ShowAlpha = "0", 
+			ShowHSV = "1",
+			ShowRGB = "1"
+		})
 		
 		local pSave = vgui.Create("DButton",pnl)
 		pSave:SetText("Save Nodegraph (" .. game.GetMap() .. ".txt)")
