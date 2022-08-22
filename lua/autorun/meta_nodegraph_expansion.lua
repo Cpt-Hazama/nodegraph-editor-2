@@ -4,7 +4,7 @@ if CLIENT then
 		local green = Color(206,151,0)
 		timer.Simple(10,function()
 			chat.AddText(green,"Nodegraph Editor Changelog:")
-			chat.AddText(orange," - Added 'Offset' option (modifies node height)")
+			chat.AddText(orange," - Added 'Coloring' options for nodes and links")
 		end)
 	end)
 end
