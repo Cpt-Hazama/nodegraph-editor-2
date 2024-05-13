@@ -1,5 +1,11 @@
 "VertexLitGeneric"
 {
 	"$basetexture" "Editor/Climb_node_col"
-	//"$selfillum" "1"
+	"$detail" 		"Editor/Climb_node_col"
+
+	"$translucent" "1"
+
+	"$detailscale" "1"
+	"$detailblendfactor" "3"
+	"$detailblendmode" "1"
 }
